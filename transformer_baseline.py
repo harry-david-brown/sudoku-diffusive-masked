@@ -14,27 +14,46 @@ def load_dataset(path, n=None):
     X = torch.tensor([[int(c) for c in p] for p in puzzles], dtype=torch.long)
     Y = torch.tensor([[int(c) for c in s] for s in solutions], dtype=torch.long)
     return X, Y
-
+puzzles, solutions = load_dataset('sudoku.csv', n=10)
 
 class SudokuTransformer(nn.Module):
-    def __init__(self, vocab_size=10, embed_dim=128, num_heads=4, num_layers=4, seq_len=81):
+    def __init__(self, vocab_size=11, embed_dim=128, num_heads=4, num_layers=4, seq_len=81):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim)
         self.pos_embedding = nn.Embedding(seq_len, embed_dim)
-        decoder_layer = nn.TransformerDecoderLayer(
+        encoder_layer = nn.TransformerEncoderLayer(
             d_model=embed_dim,
             nhead=num_heads,
             dim_feedforward=512,
             dropout=0.1,
             batch_first=True
         )
-        self.transformer = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
-        self.output = nn.Linear(embed_dim, vocab_size)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.output = nn.Linear(embed_dim, 10)
         self.seq_len = seq_len
 
     def forward(self, x):
         positions = torch.arange(self.seq_len, device=x.device).unsqueeze(0)
         x = self.embedding(x) + self.pos_embedding(positions)
-        mask = nn.Transformer.generate_square_subsequent_mask(self.seq_len, device=x.device)
-        x = self.transformer(x, x, tgt_mask=mask)
+        x = self.transformer(x)
         return self.output(x)
+
+
+def apply_mask_noise(puzzles, solutions, mask_token=10):
+    # Where the puzzle has 0, cell is unknown
+    unknown_mask = (puzzles == 0)
+
+    # Random values for each cell, and random threshold clamped so at least ~1 cell gets masked
+    rand_tensors = torch.rand(solutions.shape)
+    rand_threshold = torch.rand(1).clamp(min=1/81)
+
+    should_mask = unknown_mask & (rand_tensors < rand_threshold)
+
+    corrupted = solutions.clone()
+    corrupted[should_mask] = mask_token
+
+    #num_masks = should_mask.sum().item()
+
+    print(corrupted)
+
+apply_mask_noise(puzzles, solutions)
