@@ -14,7 +14,6 @@ def load_dataset(path, n=None):
     X = torch.tensor([[int(c) for c in p] for p in puzzles], dtype=torch.long)
     Y = torch.tensor([[int(c) for c in s] for s in solutions], dtype=torch.long)
     return X, Y
-puzzles, solutions = load_dataset('sudoku.csv', n=10)
 
 class SudokuTransformer(nn.Module):
     def __init__(self, vocab_size=11, embed_dim=128, num_heads=4, num_layers=4, seq_len=81):
@@ -42,10 +41,29 @@ class SudokuTransformer(nn.Module):
 def apply_mask_noise(puzzles, solutions, mask_token=10):
     unknown_mask = (puzzles == 0)
     rand_tensors = torch.rand(solutions.shape)
-    rand_threshold = torch.rand(1).clamp(min=1/81)
+    rand_threshold = torch.rand(solutions.shape[0], 1).clamp(min=1/81)
     should_mask = unknown_mask & (rand_tensors < rand_threshold)
     corrupted = solutions.clone()
     corrupted[should_mask] = mask_token
     return corrupted, should_mask
 
-apply_mask_noise(puzzles, solutions)
+
+
+device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
+puzzles, solutions = load_dataset('sudoku.csv', n=10)
+dataset = TensorDataset(puzzles, solutions)
+loader = DataLoader(dataset, batch_size=64, shuffle=True)
+model = SudokuTransformer().to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+
+num_epochs = 20
+for epoch in range(num_epochs):
+    for batch_puzzles, batch_solutions in loader:
+        optimizer.zero_grad()
+        corrupted, should_mask = apply_mask_noise(batch_puzzles, batch_solutions)
+        output = model(corrupted)
+        loss = criterion(output[should_mask], batch_solutions[should_mask])
+        loss.backward()
+        optimizer.step()
