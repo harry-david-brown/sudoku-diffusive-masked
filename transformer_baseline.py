@@ -4,6 +4,7 @@ import pandas as pd
 import time
 from torch.utils.data import TensorDataset, DataLoader
 
+
 def load_dataset(path, n=None):
     df = pd.read_csv(path, dtype=str)
     puzzles = df['quizzes'].tolist()
@@ -14,6 +15,7 @@ def load_dataset(path, n=None):
     X = torch.tensor([[int(c) for c in p] for p in puzzles], dtype=torch.long)
     Y = torch.tensor([[int(c) for c in s] for s in solutions], dtype=torch.long)
     return X, Y
+
 
 class SudokuTransformer(nn.Module):
     def __init__(self, vocab_size=11, embed_dim=128, num_heads=4, num_layers=4, seq_len=81):
@@ -40,30 +42,45 @@ class SudokuTransformer(nn.Module):
 
 def apply_mask_noise(puzzles, solutions, mask_token=10):
     unknown_mask = (puzzles == 0)
-    rand_tensors = torch.rand(solutions.shape)
-    rand_threshold = torch.rand(solutions.shape[0], 1).clamp(min=1/81)
+    rand_tensors = torch.rand(solutions.shape, device=solutions.device)
+    rand_threshold = torch.rand(solutions.shape[0], 1, device=solutions.device).clamp(min=1/81)
     should_mask = unknown_mask & (rand_tensors < rand_threshold)
     corrupted = solutions.clone()
     corrupted[should_mask] = mask_token
     return corrupted, should_mask
 
 
-
+# ── Setup ──────────────────────────────────────────────────────────────────────
 device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
-puzzles, solutions = load_dataset('sudoku.csv', n=10)
+puzzles, solutions = load_dataset('sudoku.csv', n=100000)
 dataset = TensorDataset(puzzles, solutions)
 loader = DataLoader(dataset, batch_size=64, shuffle=True)
 model = SudokuTransformer().to(device)
+total_params = sum(p.numel() for p in model.parameters())
+print(f"Parameters: {total_params:,}")
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
 
-num_epochs = 20
+# ── Training ───────────────────────────────────────────────────────────────────
+num_epochs = 10
 for epoch in range(num_epochs):
+    model.train()
+    total_loss = 0
+    start = time.time()
     for batch_puzzles, batch_solutions in loader:
+        batch_puzzles = batch_puzzles.to(device)
+        batch_solutions = batch_solutions.to(device)
         optimizer.zero_grad()
         corrupted, should_mask = apply_mask_noise(batch_puzzles, batch_solutions)
         output = model(corrupted)
         loss = criterion(output[should_mask], batch_solutions[should_mask])
         loss.backward()
         optimizer.step()
+        total_loss += loss.item()
+    elapsed = time.time() - start
+    print(f"Epoch {epoch+1}/{num_epochs} — Loss: {total_loss/len(loader):.4f} — {elapsed:.0f}s")
+
+
+torch.save(model.state_dict(), 'sudoku_diffusion_masked.pth')
+print("Model saved.")
