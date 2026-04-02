@@ -40,20 +40,12 @@ class SudokuTransformer(nn.Module):
 
 
 def apply_mask_noise(puzzles, solutions, mask_token=10):
-    # Where the puzzle has 0, cell is unknown
     unknown_mask = (puzzles == 0)
-
-    # Random values for each cell, and random threshold clamped so at least ~1 cell gets masked
     rand_tensors = torch.rand(solutions.shape)
     rand_threshold = torch.rand(1).clamp(min=1/81)
-
     should_mask = unknown_mask & (rand_tensors < rand_threshold)
-
     corrupted = solutions.clone()
     corrupted[should_mask] = mask_token
-
-    #num_masks = should_mask.sum().item()
-
-    print(corrupted)
+    return corrupted, should_mask
 
 apply_mask_noise(puzzles, solutions)
