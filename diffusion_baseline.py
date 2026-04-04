@@ -17,7 +17,7 @@ def load_dataset(path, n=None):
     return X, Y
 
 
-class SudokuTransformer(nn.Module):
+class SudokuDiffusion(nn.Module):
     def __init__(self, vocab_size=11, embed_dim=128, num_heads=4, num_layers=4, seq_len=81):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim)
@@ -55,32 +55,67 @@ device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
 puzzles, solutions = load_dataset('sudoku.csv', n=500000)
 dataset = TensorDataset(puzzles, solutions)
 loader = DataLoader(dataset, batch_size=64, shuffle=True)
-model = SudokuTransformer().to(device)
-total_params = sum(p.numel() for p in model.parameters())
-print(f"Parameters: {total_params:,}")
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+model = SudokuDiffusion().to(device)
+model.load_state_dict(torch.load('sudoku_diffusion_masked_500k.pth', map_location=device))
+model.eval()
+# total_params = sum(p.numel() for p in model.parameters())
+# print(f"Parameters: {total_params:,}")
+#criterion = nn.CrossEntropyLoss()
+#optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
 
 # ── Training ───────────────────────────────────────────────────────────────────
-num_epochs = 20
-for epoch in range(num_epochs):
-    model.train()
-    total_loss = 0
-    start = time.time()
-    for batch_puzzles, batch_solutions in loader:
-        batch_puzzles = batch_puzzles.to(device)
-        batch_solutions = batch_solutions.to(device)
-        optimizer.zero_grad()
-        corrupted, should_mask = apply_mask_noise(batch_puzzles, batch_solutions)
-        output = model(corrupted)
-        loss = criterion(output[should_mask], batch_solutions[should_mask])
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-    elapsed = time.time() - start
-    print(f"Epoch {epoch+1}/{num_epochs} — Loss: {total_loss/len(loader):.4f} — {elapsed:.0f}s")
+# num_epochs = 20
+# for epoch in range(num_epochs):
+#     model.train()
+#     total_loss = 0
+#     start = time.time()
+#     for batch_puzzles, batch_solutions in loader:
+#         batch_puzzles = batch_puzzles.to(device)
+#         batch_solutions = batch_solutions.to(device)
+#         optimizer.zero_grad()
+#         corrupted, should_mask = apply_mask_noise(batch_puzzles, batch_solutions)
+#         output = model(corrupted)
+#         loss = criterion(output[should_mask], batch_solutions[should_mask])
+#         loss.backward()
+#         optimizer.step()
+#         total_loss += loss.item()
+#     elapsed = time.time() - start
+#     print(f"Epoch {epoch+1}/{num_epochs} — Loss: {total_loss/len(loader):.4f} — {elapsed:.0f}s")
+
+# torch.save(model.state_dict(), 'sudoku_diffusion_masked_500k.pth')
+# print("Model saved.")
 
 
-torch.save(model.state_dict(), 'sudoku_diffusion_masked_500k.pth')
-print("Model saved.")
+
+
+def iterative_inference(puzzle_string, model, device, k=10):
+    # encode — givens fixed, unknowns masked
+    tokens = [10 if c == '0' or c == '.' else int(c) for c in puzzle_string]
+    x = torch.tensor([tokens], dtype=torch.long).to(device)
+    
+    # track which positions are still masked
+    still_masked = torch.tensor([c == 10 for c in tokens])
+    
+    model.eval()
+    with torch.no_grad():
+        while still_masked.any():
+            output = model(x)  # [1, 81, 10]
+            probs = torch.softmax(output[0], dim=-1)  # [81, 10]
+            
+            # confidence = max probability at each position
+            confidence, predicted = probs.max(dim=-1)  # both [81]
+            
+            # only consider still-masked positions
+            confidence[~still_masked] = -1
+            
+            # pick top-k most confident masked positions
+            num_to_unmask = min(k, still_masked.sum().item())
+            topk_positions = confidence.topk(num_to_unmask).indices
+            
+            # unmask them
+            for pos in topk_positions:
+                x[0, pos] = predicted[pos]
+                still_masked[pos] = False
+    
+    return ''.join(str(x[0, i].item()) for i in range(81))
