@@ -52,7 +52,7 @@ def apply_mask_noise(puzzles, solutions, mask_token=10):
 
 # ── Setup ──────────────────────────────────────────────────────────────────────
 device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
-puzzles, solutions = load_dataset('sudoku.csv', n=100000)
+puzzles, solutions = load_dataset('sudoku.csv', n=500000)
 dataset = TensorDataset(puzzles, solutions)
 loader = DataLoader(dataset, batch_size=64, shuffle=True)
 model = SudokuTransformer().to(device)
@@ -63,7 +63,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
 
 # ── Training ───────────────────────────────────────────────────────────────────
-num_epochs = 10
+num_epochs = 20
 for epoch in range(num_epochs):
     model.train()
     total_loss = 0
@@ -82,5 +82,5 @@ for epoch in range(num_epochs):
     print(f"Epoch {epoch+1}/{num_epochs} — Loss: {total_loss/len(loader):.4f} — {elapsed:.0f}s")
 
 
-torch.save(model.state_dict(), 'sudoku_diffusion_masked.pth')
+torch.save(model.state_dict(), 'sudoku_diffusion_masked_500k.pth')
 print("Model saved.")
