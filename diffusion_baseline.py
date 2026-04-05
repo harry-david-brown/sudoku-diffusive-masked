@@ -89,7 +89,7 @@ model.eval()
 
 
 
-def iterative_inference(puzzle_string, model, device, k=10):
+def iterative_inference(puzzle_string, model, device, k=5):
     # encode — givens fixed, unknowns masked
     tokens = [10 if c == '0' or c == '.' else int(c) for c in puzzle_string]
     x = torch.tensor([tokens], dtype=torch.long).to(device)
@@ -119,3 +119,28 @@ def iterative_inference(puzzle_string, model, device, k=10):
                 still_masked[pos] = False
     
     return ''.join(str(x[0, i].item()) for i in range(81))
+
+# ── Iterative decoding benchmark ───────────────────────────────────────────────
+import random
+
+# sample 1000 puzzles for benchmarking
+sample_size = 1000
+indices = random.sample(range(len(puzzles)), sample_size)
+sample_puzzles = [''.join(str(c.item()) for c in puzzles[i]) for i in indices]
+sample_solutions = [''.join(str(c.item()) for c in solutions[i]) for i in indices]
+
+for k in [1, 5, 10, 20, 81]:
+    correct = 0
+    total_passes = 0
+    start = time.time()
+    for puzzle_str, solution_str in zip(sample_puzzles, sample_solutions):
+        # count unknown cells for pass calculation
+        num_unknown = puzzle_str.count('0')
+        passes = max(1, -(-num_unknown // k))  # ceiling division
+        total_passes += passes
+        result = iterative_inference(puzzle_str, model, device, k=k)
+        if result == solution_str:
+            correct += 1
+    elapsed = time.time() - start
+    print(f"k={k:3d} — Puzzle accuracy: {correct/sample_size*100:.2f}% — Avg passes: {total_passes/sample_size:.1f} — Time: {elapsed:.1f}s")
+
