@@ -62,7 +62,7 @@ dataset = TensorDataset(puzzles, solutions)
 loader = DataLoader(dataset, batch_size=64, shuffle=True)
 
 model = SudokuDiffusion().to(device)
-model.load_state_dict(torch.load('sudoku_diffusion_masked_500k.pth', map_location=device))
+model.load_state_dict(torch.load('sudoku_diffusion_masked_finetuned_hard.pth', map_location=device))
 print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
 
 criterion = nn.CrossEntropyLoss()
